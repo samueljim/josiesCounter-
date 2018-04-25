@@ -1,11 +1,11 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const compression = require('compression');
-const Grid = require('gridfs-stream');
-const sharp = require('sharp');
 const chalk = require('chalk');
 const statusMonitor = require('express-status-monitor')();
 const path = require("path");
+const schedule = require("node-schedule");
+const Durry = require('./durry');
 
 /**
  * Create Express server.
@@ -17,25 +17,20 @@ app.set(
   "port",
   process.env.PORT_NUM ||
     process.env.PORT ||
-    80
+    420
 );
 
-const imageDB = 'mongodb://admin:password@ds227199.mlab.com:27199/glass';
+const durrybase = 'mongodb://admin:password@ds155299.mlab.com:55299/durrybase';
+
 /**
  * Connect to MongoDB.
  */
 mongoose.Promise = global.Promise;
-mongoose.connect(imageDB);
+mongoose.connect(durrybase);
 mongoose.connection.on('error', (err) => {
   console.error(err);
   console.log('%s MongoDB connection error. Please make sure MongoDB is running.', chalk.red('✗'));
   process.exit();
-});
-
-let gfs = null;
-mongoose.connection.once('open', () => {
-  Grid.mongo = mongoose.mongo;
-  gfs = Grid(mongoose.connection.db);
 });
 
 app.use(express.static(__dirname + '/homePage'));
@@ -43,78 +38,55 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname+'/index.html'));
 });
 
-/**
- * Image routes.
- */
-async function getImage(req, res) {
-  /** First check if file exists */
-  gfs.findOne({ filename: req.params.filename, root: 'images' }, (errors, file) => {
-    /** If there's an error or the file don't exist then send a 404 for the request */
-    if (errors || !file || file.length === 0) {
-      return res.status(404).send('Error on the database looking for that image.');
-    }
-    /** create read stream of image from the database */
-    const readstream = gfs.createReadStream({
-      filename: file.filename,
-      root: 'images'
-    });
-
-    /** set the proper content type */
-    res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.set('Content-Type', file.contentType); // file.contentType to maintain the image file type
-
-    /** if there's an error pulling image blobs from the database then stop */
-    readstream.on('error', () => {
-      res.status(404);
-      res.end();
-    });
-
-    /**  if width or height is given then resize to that size */
-    let imageCompression = null;
-    if (req.query.format) {
-      if (req.query.w) {
-        if (req.query.h) {
-          imageCompression = sharp()
-            .resize(parseInt(req.query.w), parseInt(req.query.h)).toFormat(req.query.format);
-        } else {
-          imageCompression = sharp()
-            .resize(parseInt(req.query.w), null).toFormat(req.query.format);
-        }
-      } else if (req.query.h) {
-          imageCompression = sharp()
-            .resize(null, parseInt(req.query.h)).toFormat(req.query.format);
-        } else {
-          imageCompression = sharp().toFormat(req.query.format);
-        }
+function updateDurry() {
+  Durry.findOne({}).then((docs) => {
+    if (docs.durryToday) {
+      docs.daysWithout++;
+      docs.durryToday = false;
+      docs.save();
     } else {
-    if (req.query.w) {
-      if (req.query.h) {
-        imageCompression = sharp()
-          .resize(parseInt(req.query.w), parseInt(req.query.h));
-      } else {
-        imageCompression = sharp()
-          .resize(parseInt(req.query.w), null);
-      }
-    } else if (req.query.h) {
-        imageCompression = sharp()
-          .resize(null, parseInt(req.query.h));
-      } else {
-        imageCompression = sharp();
-      }
+      docs.daysWithout = 0;
+      docs.save();
     }
-    return readstream.pipe(imageCompression).pipe(res);
+    console.error('durry day update ', docs);
+  }).catch((err) => {
+    console.error(err);
   });
 }
 
-app.get('/image/:filename', (req, res) => {
-  getImage(req, res).then({
-  }).catch(() => {
-    res.status(404);
+const j = schedule.scheduleJob("* * 0 * * *", updateDurry);
+
+app.get('/durry', (req, res) => {
+  Durry.findOne({}).then((docs) => {
+    console.error(docs);
+    return res.status(200).json(docs.daysWithout);
+  }).catch((err) => {
+    console.error(err);
   });
+});
+
+app.get('/nodurry', (req, res) => {
+  res.redirect('/');
+});
+
+app.post('/', (req, res) => {
+  Durry.findOne({}).then((docs) => {
+      docs.durryToday = true;
+      docs.save();
+      console.error(docs);
+    }).catch((err) => {
+      console.error(err);
+    });
+  return res.status(200);
 });
 
 app.get('*', (req, res) => {
   res.status(404);
+});
+
+app.get('/newday', (req, res) => {
+  updateDurry();
+  res.send('new day');
 });
 
 /**

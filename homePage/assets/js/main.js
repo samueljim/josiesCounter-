@@ -5,6 +5,7 @@
 */
 (function($) {
 
+
 	var	$window = $(window),
 		$banner = $('#banner'),
 		$body = $('body');
@@ -25,6 +26,11 @@
 			window.setTimeout(function() {
 				$body.removeClass('is-preload');
 			}, 100);
+
+			$.get("/durry", function(data, status){
+				console.log(data);
+				$("#counter").text(data + ` Days without a darb`);
+			});
 		});
 
 	// Menu.
