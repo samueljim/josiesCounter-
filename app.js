@@ -80,14 +80,15 @@ app.post('/', (req, res) => {
   return res.status(200);
 });
 
+app.get('/newday', (req, res) => {
+  updateDurry();
+  res.redirect('/');
+});
+
 app.get('*', (req, res) => {
   res.status(404);
 });
 
-app.get('/newday', (req, res) => {
-  updateDurry();
-  res.send('new day');
-});
 
 /**
  * Start Express server.
